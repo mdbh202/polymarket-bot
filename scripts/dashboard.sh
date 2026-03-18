@@ -17,8 +17,20 @@ get_time() {
 }
 
 # Main loop
+# Use tput for smoother, flicker-free updates
+tput civis # Hide cursor
+trap "tput cnorm; exit" INT TERM # Show cursor on exit
+
+clear # Clear once at the start to ensure we are at the top
+
 while true; do
-    clear
+    # Check for other dashboard processes (excluding our own)
+    OTHER_PIDS=$(pgrep -f "scripts/dashboard.sh" | grep -v "$$")
+    
+    # 0. Sync Latest Data
+    bash "$(dirname "$0")/latest.sh" 2>/dev/null
+    
+    tput cup 0 0 # Move cursor to top-left instead of clear
     echo -e "${BLUE}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${NC}"
     echo -e "${BLUE}┃${NC}  ${YELLOW}POLYMARKET AI TRADING BOT DASHBOARD${NC}                     $(get_time)  ${BLUE}┃${NC}"
     echo -e "${BLUE}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${NC}"
@@ -27,12 +39,23 @@ while true; do
     WATCH_PID=$(pgrep -f watch.sh || echo "NONE")
     echo -e "${CYAN}[ SYSTEM STATUS ]${NC}"
     if [ "$WATCH_PID" != "NONE" ]; then
-        echo -e "  Background:   ${GREEN}ACTIVE${NC} (PID: $WATCH_PID)"
+        echo -e "  Feed Service: ${GREEN}ACTIVE${NC} (PID: $WATCH_PID)"
     else
-        echo -e "  Background:   ${RED}STOPPED${NC}"
+        echo -e "  Feed Service: ${RED}STOPPED${NC} (Run: bash scripts/watch.sh &)"
     fi
+    
+    if [ -n "$OTHER_PIDS" ]; then
+        echo -e "  Dashboard:    ${YELLOW}WARNING: MULTIPLE INSTANCES RUNNING${NC}"
+    fi
+    
     echo -e "  Portfolio:    ${YELLOW}1,000 USDC${NC}"
-    echo -e "  Feed Status:  $(if [ -f output/latest_scan.json ]; then echo -e "${GREEN}LIVE${NC}"; else echo -e "${YELLOW}WAITING${NC}"; fi)"
+    
+    # Calibration (Brier) logic
+    CALIB="PENDING"
+    if [ -f output/predictions.jsonl ]; then
+        CALIB=$(jq -rs 'map(select(.brier_score != null).brier_score) as $scores | if ($scores | length) > 0 then ($scores | add / ($scores | length) | tostring)[:6] else "PENDING" end' output/predictions.jsonl 2>/dev/null)
+    fi
+    echo -e "  Calibration:  ${CYAN}${CALIB}${NC} (Brier Score)"
     echo
     
     # 2. Live Market Feed (Top 5 by Volume)
@@ -43,49 +66,28 @@ while true; do
     if [ -f output/latest_scan.json ]; then
         # Check if it's a raw array (from watch.sh) or an AI report (from scan.sh)
         if jq -e 'type == "array"' output/latest_scan.json >/dev/null 2>&1; then
-            MARKETS_JSON='.'
+            jq -r '.[:5] | .[] | "\((.id | tostring + "       ")[:7]) | \((if .question|length > 45 then .question[:42] + "..." else .question end + "                                             ")[:45]) | \((if .outcomePrices then (.outcomePrices|fromjson[0]|tonumber|tostring + "     ")[:5] else "0.000" end)) | \((.volume24hr|tonumber / 1000000 | floor | tostring) + "M")"' output/latest_scan.json 2>/dev/null
         else
-            MARKETS_JSON='.markets'
+            jq -r '.markets[:5] | .[] | "\((.market_id | tostring + "       ")[:7]) | \((if .question|length > 45 then .question[:42] + "..." else .question end + "                                             ")[:45]) | \((.market_price|tonumber|tostring + "     ")[:5]) | \((.after_fee_edge|tonumber * 100 | floor | tostring) + "%")"' output/latest_scan.json 2>/dev/null
         fi
-
-        jq -r "$MARKETS_JSON[:5] | .[] | \"\(.id | tostring | (. + \\\"       \\\")[:7]) | \((if .question|length > 45 then .question[:42] + \\\"...\\\" else .question end) | (. + \\\"                                             \\\")[:45]) | \((if .outcomePrices then (.outcomePrices|fromjson[0]|tonumber|tostring|(. + \\\"     \\\")[:5]) else \\\"0.000\\\" end)) | \((.volume24hr|tonumber / 1000000 | floor | tostring) + \\\"M\\\")\"" output/latest_scan.json 2>/dev/null
     else
         echo -e "  ${YELLOW}Waiting for first background scan results...${NC}"
     fi
     
     echo
     
-    # 3. Recent Alerts / Sentiment
+    # 3. Recent Signals
     echo -e "${CYAN}[ RECENT SIGNALS & ALERTS ]${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    if [ -f output/latest_scan.json ]; then
-        if jq -e 'type == "array"' output/latest_scan.json >/dev/null 2>&1; then
-            MARKETS_JSON='.'
-        else
-            MARKETS_JSON='.markets'
-        fi
-        jq -r "$MARKETS_JSON[:3] | .[] | \"  - \(.question)\"" output/latest_scan.json 2>/dev/null
-    else
-        echo -e "  ${YELLOW}Waiting for news analysis...${NC}"
-    fi
-    
-    echo
-    
-    # 4. Forecaster Calibration
-    echo -e "${CYAN}[ FORECASTER CALIBRATION ]${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     if [ -f output/predictions.jsonl ]; then
-        AVG_BRIER=$(jq -rs 'map(select(.brier_score != null).brier_score) as $scores | if ($scores | length) > 0 then ($scores | add / ($scores | length) | tostring) else "PENDING" end' output/predictions.jsonl 2>/dev/null)
-        if [ "$AVG_BRIER" != "PENDING" ]; then
-            echo -e "  Avg Brier Score: ${YELLOW}$AVG_BRIER${NC} (Lower is better)"
-        else
-            echo -e "  Avg Brier Score: ${YELLOW}PENDING${NC} (Waiting for market resolution)"
-        fi
+        tail -n 3 output/predictions.jsonl | jq -r '"  - \(.question)"' 2>/dev/null
     else
-        echo -e "  ${YELLOW}Waiting for prediction history...${NC}"
+        echo -e "  ${YELLOW}No signals recorded.${NC}"
     fi
-
+    
     echo
-    echo -e "${BLUE}Press Ctrl+C to exit dashboard.${NC}"
+    echo -e "${BLUE}Press Ctrl+C to exit. Updates every 5s.${NC}"
+    # Use tput ed to clear anything remaining below
+    tput ed
     sleep 5
 done
