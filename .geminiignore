@@ -1,0 +1,6 @@
+output/
+node_modules/
+mcp/node_modules/
+*.log
+.env
+output/*.json

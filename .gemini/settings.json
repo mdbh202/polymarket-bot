@@ -1,0 +1,28 @@
+{
+  "model": {
+    "name": "gemini-2.5-pro"
+  },
+  "generationConfig": {
+    "thinkingLevel": "medium",
+    "temperature": 1.0
+  },
+  "mcpServers": {
+    "polymarket": {
+      "command": "node",
+      "args": ["mcp/polymarket-server.js"],
+      "env": {
+        "POLYMARKET_API_KEY": "${POLYMARKET_API_KEY}"
+      }
+    },
+    "news": {
+      "command": "node",
+      "args": ["mcp/news-server.js"],
+      "env": {
+        "NEWSDATA_API_KEY": "${NEWSDATA_API_KEY}"
+      }
+    }
+  },
+  "telemetry": {
+    "enabled": false
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "polymarket-bot-mcp",
+  "version": "1.0.0",
+  "description": "MCP servers for Polymarket and news data",
+  "type": "module",
+  "scripts": {
+    "start:polymarket": "node polymarket-server.js",
+    "start:news": "node news-server.js",
+    "install-check": "node -e \"import('@modelcontextprotocol/sdk/server/index.js').then(()=>console.log('SDK OK')).catch(()=>{console.error('Run: npm install');process.exit(1)})\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "node-fetch": "^3.3.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
