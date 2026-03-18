@@ -62,13 +62,9 @@ Polymarket is a decentralized prediction market platform built on the Polygon bl
    * Raw edge = P(true) - P(market)
    * After-fee edge = P(true) - P(market) - 0.02
    * Minimum required edge: 0.025 (2.5%).
-6. **Kelly position sizing (Polymarket formula):**
-   * Full Kelly fraction: f* = (p - P) / (1 - P)
-   * Where p = true probability, P = YES price.
-   * Fractional Kelly Multipliers:
-     * Conservative: 0.10 * f* (CI > +/-0.10 or OI < $10k)
-     * Normal: 0.25 * f* (default)
-     * Aggressive: 0.33 * f* (CI < +/-0.07 and OI > $100k)
+6. **Kelly position sizing (Automated MCP):**
+   * Use the `calculate_kelly` tool for all sizing. It fetches the live order book to determine the real-time execution price `P` and applies the Polymarket fee heuristic.
+   * **Full Kelly fraction:** f* = (p - P) / (1 - P)
    * **Hard Cap:** Never exceed 5% of total portfolio on any single position.
 
 ## BIAS CHECKLIST
@@ -109,6 +105,12 @@ Polymarket is a decentralized prediction market platform built on the Polygon bl
 - Min open interest: $10,000.
 - Max acceptable spread: 15%.
 - Portfolio 7-day drawdown limit: 15%.
+
+## CALIBRATION TRACKING
+All predictions must be logged to `output/predictions.jsonl` for Brier Score calculation. 
+- **Brier Score:** (Predicted Probability - Actual Outcome)^2. 
+- **Target:** Maintain an average Brier Score below 0.15.
+- **Protocol:** After every scan, run `node scripts/resolve_predictions.js` to update outcomes and accuracy metrics.
 
 ## STANDARD OUTPUT FORMAT
 
@@ -154,6 +156,6 @@ Polymarket is a decentralized prediction market platform built on the Polygon bl
 2. Never recommend a trade that cannot be justified step-by-step through the superforecasting process.
 3. When evidence is insufficient, output NO TRADE with a brief explanation.
 4. Update all open position assessments when a significant new Tier 1/2 signal arrives.
-5. Track estimate accuracy vs resolutions to refine calibration.
-6. Available tools: `get_markets`, `get_orderbook`, `get_history`, `search_news`, `get_prediction_market_consensus`, `GoogleSearch`, `WebFetch`.
-7. Always call `get_orderbook` before finalizing an entry price.
+5. Track estimate accuracy vs resolutions using `output/predictions.jsonl` to refine calibration.
+6. Available tools: `get_markets`, `get_orderbook`, `get_history`, `calculate_kelly`, `search_news`, `get_prediction_market_consensus`, `GoogleSearch`, `WebFetch`.
+7. Always call `calculate_kelly` before finalizing an entry price and position size.

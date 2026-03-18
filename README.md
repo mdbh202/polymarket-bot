@@ -33,7 +33,15 @@ This is a complete, production-ready AI trading agent designed to identify and e
   ```bash
   bash scripts/watch.sh --interval 600
   ```
-- **Kelly Calculator:** Manually size a position.
+- **Prediction Resolution:** Resolve pending predictions and calculate Brier scores.
+  ```bash
+  node scripts/resolve_predictions.js
+  ```
+- **Live Dashboard:** Monitor bot status, market feed, and calibration in real-time.
+  ```bash
+  bash scripts/dashboard.sh
+  ```
+- **Kelly Calculator:** Manually size a position (Legacy).
   ```bash
   node scripts/kelly.js --p 0.72 --market 0.65 --portfolio 1000
   ```
@@ -44,16 +52,16 @@ This is a complete, production-ready AI trading agent designed to identify and e
 - `.gemini/skills/`: Specialized agent logic for trading, research, and risk management.
 - `mcp/`: Node.js Model Context Protocol servers for Polymarket and News APIs.
 - `scripts/`: Bash and Node.js utilities for setup, scanning, and position sizing.
-- `output/`: Directory where automated scan JSON results are stored.
+- `output/`: Directory for scan JSON results and `predictions.jsonl` (calibration audit trail).
 
-## How the Skill System Works
-The bot uses three primary skills to ensure high-fidelity decision making:
-1.  **Polymarket Trader**: Triggers on queries like "find me some edge." It orchestrates the full workflow from discovery to sizing.
-2.  **Market Researcher**: Triggers when deep evidence gathering is needed. It implements a 4-tier signal sweep and anchors in base rates.
-3.  **Risk Manager**: Triggers when calculating position sizes. It enforces hard caps (e.g., 5% max per position) and category limits.
+## Calibration & Accuracy
+The bot tracks its own performance using the **Brier Score** $(p - o)^2$. Every market analyzed during a scan is logged to `output/predictions.jsonl`.
+- **Pending:** Predictions are logged with `status: "pending"`.
+- **Resolution:** Running `node scripts/resolve_predictions.js` queries the Polymarket API to check if markets have closed and updates the scores.
+- **Monitoring:** The average Brier Score is displayed on the live dashboard. A lower score indicates better calibration (0.0 is perfect).
 
 ## MCP Servers
-- **Polymarket Server**: Exposes `get_markets`, `get_orderbook`, and `get_history`. It directly interfaces with the Gamma, CLOB, and Data APIs.
+- **Polymarket Server**: Exposes `get_markets`, `get_orderbook`, `get_history`, and `calculate_kelly`. The `calculate_kelly` tool automates risk-managed sizing by fetching live order book depth.
 - **News Server**: Exposes `search_news` and `get_prediction_market_consensus`. It integrates news data and Metaculus community consensus for Bayesian updates.
 
 ## Model Selection Guide
