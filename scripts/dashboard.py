@@ -59,13 +59,16 @@ class MarketCard(Static):
         if not m: return "Loading..."
 
         question = m.get('question', 'Unknown Market')
-        market_p = m.get('market_price', 0.5)
-        true_p = m.get('true_probability', 0.5)
+        market_p = m.get('market_p', m.get('market_price', 0.5))
+        true_p = m.get('predicted_p', m.get('true_probability', 0.5))
         ensemble = m.get('ensemble_breakdown', {})
         
         # Color coding for the edge
         edge = true_p - market_p
         edge_color = "#a7f3d0" if edge > 0.05 else "#94a3b8"
+        
+        # Status Badge
+        status = "[#a7f3d0]✓ TRADE TRIGGERED[/] | " if m.get('is_recommended') else ""
         
         # Simple ASCII probability bar
         # [=====M-----T-----]
@@ -96,6 +99,7 @@ class PolymarketApp(App):
         ("n", "niche_scan", "Niche Scan"),
         ("s", "standard_scan", "Standard Scan"),
         ("a", "toggle_auto", "Toggle Auto"),
+        ("c", "clear_activity", "Clear Activity"),
         ("q", "quit", "Quit"),
     ]
 
@@ -104,6 +108,16 @@ class PolymarketApp(App):
     trades = reactive([])
     auto_mode = reactive(False)
     auto_timer = None
+
+    def action_clear_activity(self) -> None:
+        """Truncate trades.jsonl and predictions.jsonl."""
+        try:
+            if TRADES_PATH.exists(): TRADES_PATH.write_text("")
+            if PREDICTIONS_PATH.exists(): PREDICTIONS_PATH.write_text("")
+            self.notify("Activity logs cleared.")
+            self.refresh_data()
+        except Exception as e:
+            self.notify(f"Clear Failed: {str(e)}", severity="error")
 
     def action_toggle_auto(self) -> None:
         self.auto_mode = not self.auto_mode
@@ -174,18 +188,18 @@ class PolymarketApp(App):
     @work(exclusive=True)
     async def refresh_data(self) -> None:
         try:
-            # 1. Load Market Data (scan_niche results or latest)
-            # We look for the newest file in output/
+            # 1. Load Market Data (scan_niche results)
             scan_files = list(OUTPUT_DIR.glob("scan_*.json"))
             scan_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
             
-            markets_data = []
+            scanned_data = []
             age = 0
             if scan_files:
                 try:
                     with open(scan_files[0], 'r') as f:
                         raw = json.load(f)
-                        markets_data = raw.get('markets', [])
+                        # We use 'predictions' as the primary source for the grid to show ALL analyzed markets
+                        scanned_data = raw.get('predictions', []) or raw.get('markets', [])
                     age = int(time.time() - scan_files[0].stat().st_mtime)
                 except: pass
 
@@ -223,9 +237,8 @@ class PolymarketApp(App):
 
             # Update Grid
             grid = self.query_one("#market-list", ScrollableContainer)
-            # Rebuild grid if count changed or every few refreshes
             grid.remove_children()
-            for m in markets_data[:10]: # Top 10 niche
+            for m in scanned_data[:20]: # Show top 20 analyzed
                 card = MarketCard()
                 card.market_data = m
                 grid.mount(card)
