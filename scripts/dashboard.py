@@ -23,12 +23,14 @@ class SystemStatus(Static):
     data_age = reactive(0)
     resolved_count = reactive(0)
     brier_score = reactive(0.0)
+    auto_enabled = reactive(False)
 
     def compose(self) -> ComposeResult:
         yield Static(id="status-text")
         yield Static(id="age-text")
         yield Static(id="resolved-text")
         yield Static(id="brier-text")
+        yield Static(id="auto-text")
 
     def watch_status_msg(self, value: str) -> None:
         color = "green" if value == "Connected" else "red"
@@ -43,6 +45,10 @@ class SystemStatus(Static):
 
     def watch_brier_score(self, value: float) -> None:
         self.query_one("#brier-text").update(f"BRIER: [#a7f3d0]{value:.4f}[/]")
+    
+    def watch_auto_enabled(self, value: bool) -> None:
+        mode = "[#a7f3d0]ON[/]" if value else "[dim]OFF[/]"
+        self.query_one("#auto-text").update(f"AUTO: {mode}")
 
 class MarketCard(Static):
     """A minimalist card for Zen 2.0 with probability visualization."""
@@ -89,12 +95,41 @@ class PolymarketApp(App):
         ("r", "refresh", "Refresh"),
         ("n", "niche_scan", "Niche Scan"),
         ("s", "standard_scan", "Standard Scan"),
+        ("a", "toggle_auto", "Toggle Auto"),
         ("q", "quit", "Quit"),
     ]
 
     markets = reactive([])
     predictions = reactive([])
     trades = reactive([])
+    auto_mode = reactive(False)
+    auto_timer = None
+
+    def action_toggle_auto(self) -> None:
+        self.auto_mode = not self.auto_mode
+        self.query_one("#status-widget").auto_enabled = self.auto_mode
+        if self.auto_mode:
+            self.notify("Auto Mode ENABLED (15m interval)")
+            self.action_niche_scan()
+        else:
+            self.notify("Auto Mode DISABLED")
+
+    def check_auto_scan(self) -> None:
+        """Periodic check to trigger auto scans."""
+        if not self.auto_mode:
+            return
+            
+        # Get age of latest scan
+        scan_files = list(OUTPUT_DIR.glob("scan_*.json"))
+        scan_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        
+        if not scan_files:
+            self.action_niche_scan()
+            return
+
+        age = time.time() - scan_files[0].stat().st_mtime
+        if age > 900: # 15 minutes
+            self.action_niche_scan()
 
     async def action_niche_scan(self) -> None:
         self.notify("Launching Niche Scan (Edge 1 & 2)...")
@@ -130,6 +165,7 @@ class PolymarketApp(App):
         table = self.query_one("#trade-table", DataTable)
         table.add_columns("Time", "Side", "Amount", "Status", "Message")
         self.set_interval(5, self.refresh_data)
+        self.set_interval(60, self.check_auto_scan)
         self.refresh_data()
 
     def action_refresh(self) -> None:
