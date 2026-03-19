@@ -1,0 +1,109 @@
+/* 
+ * Polymarket Zen 2.0 - Minimalist & Content-First
+ * Modern Zen palette: Deep Slate background with Soft Mint and Pastel Coral accents.
+ */
+
+/* Color Variables */
+$background: #0b0f19;
+$surface: #161e2e;
+$primary: #a7f3d0; /* Soft Mint */
+$accent: #fca5a5;  /* Pastel Coral */
+$text: #e2e8f0;    /* Muted White */
+$secondary: #94a3b8; /* Slate Blue */
+
+Screen {
+    background: $background;
+    color: $text;
+}
+
+Header {
+    background: #111827;
+    color: $primary;
+    text-style: bold;
+    height: 1;
+}
+
+Footer {
+    background: #111827;
+    color: $secondary;
+}
+
+/* --- Layout --- */
+
+#main {
+    width: 1fr;
+    height: 100%;
+    padding: 0 1;
+}
+
+#status-bar {
+    height: 3;
+    width: 100%;
+    background: #111827;
+    border-bottom: solid #1f2937;
+    layout: horizontal;
+    padding: 0 2;
+    content-align: left middle;
+}
+
+#market-list {
+    height: 1fr;
+    layout: grid;
+    grid-size: 2;
+    grid-gutter: 1;
+    scrollbar-gutter: stable;
+    padding: 1;
+}
+
+#trade-table {
+    height: 8;
+    margin-top: 1;
+    background: #111827;
+    border: none;
+    border-top: solid #1f2937;
+}
+
+/* --- Widgets --- */
+
+.section-title {
+    width: 100%;
+    text-align: left;
+    color: $secondary;
+    text-style: bold;
+    padding: 0 1;
+    margin-top: 1;
+    text-transform: uppercase;
+}
+
+/* System Status (Now horizontal in Status Bar) */
+SystemStatus {
+    width: 100%;
+    height: 100%;
+    layout: horizontal;
+    content-align: left middle;
+}
+
+#status-text, #age-text, #resolved-text, #brier-text {
+    width: auto;
+    margin-right: 4;
+}
+
+/* Market Card Layout (Revamped for Zen 2.0) */
+MarketCard {
+    background: $surface;
+    border: none;
+    margin-bottom: 0;
+    padding: 1 2;
+    height: auto;
+}
+
+MarketCard:hover {
+    background: #1f2937;
+}
+
+/* Media Queries for Niche Scaling */
+@media (width < 120) {
+    #market-list {
+        grid-size: 1;
+    }
+}

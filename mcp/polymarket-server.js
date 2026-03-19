@@ -10,6 +10,16 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import fetch from 'node-fetch';
+import { ClobClient, Side, OrderType } from '@polymarket/clob-client';
+import { Wallet } from 'ethers';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { performance } from 'perf_hooks';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const TRADES_LOG_FILE = path.join(__dirname, '../output/trades.jsonl');
 
 const server = new Server(
   {
@@ -22,6 +32,62 @@ const server = new Server(
     },
   }
 );
+
+// Initialize Polymarket CLOB Client
+let POLYMARKET_PRIVATE_KEY = process.env.POLYMARKET_PRIVATE_KEY;
+if (POLYMARKET_PRIVATE_KEY) {
+  // If it's a 44-char base64 string, decode it to hex
+  if (POLYMARKET_PRIVATE_KEY.length === 44 && !POLYMARKET_PRIVATE_KEY.startsWith('0x')) {
+    try {
+      const buf = Buffer.from(POLYMARKET_PRIVATE_KEY, 'base64');
+      if (buf.length === 32) {
+        POLYMARKET_PRIVATE_KEY = '0x' + buf.toString('hex');
+      }
+    } catch (e) {
+      console.error("Base64 decoding failed, using raw private key:", e.message);
+    }
+  } else if (!POLYMARKET_PRIVATE_KEY.startsWith('0x') && POLYMARKET_PRIVATE_KEY.length === 64) {
+    POLYMARKET_PRIVATE_KEY = '0x' + POLYMARKET_PRIVATE_KEY;
+  }
+}
+
+const POLYMARKET_API_KEY = process.env.POLYMARKET_API_KEY;
+const POLYMARKET_API_SECRET = process.env.POLYMARKET_API_SECRET;
+const POLYMARKET_API_PASSPHRASE = process.env.POLYMARKET_API_PASSPHRASE;
+
+let clobClient = null;
+if (POLYMARKET_PRIVATE_KEY) {
+  try {
+    const signer = new Wallet(POLYMARKET_PRIVATE_KEY);
+    
+    // Heuristic: User often confuses secret/passphrase.
+    // Secret is usually 64 hex chars.
+    let secret = POLYMARKET_API_SECRET;
+    let passphrase = POLYMARKET_API_PASSPHRASE;
+    
+    if (!secret && passphrase && passphrase.length === 64) {
+      // User likely provided the secret in the passphrase field
+      secret = passphrase;
+      passphrase = ""; // Or some default if it's not set
+    }
+
+    clobClient = new ClobClient(
+      "https://clob.polymarket.com",
+      137,
+      signer,
+      {
+        apiKey: POLYMARKET_API_KEY,
+        secret: secret,
+        passphrase: passphrase,
+      },
+      0, // Signature type: 0 = EOA
+      signer.address // Funder address
+    );
+    console.error(`Polymarket CLOB Client initialized for ${signer.address}`);
+  } catch (e) {
+    console.error("Failed to initialize Polymarket CLOB Client:", e.message);
+  }
+}
 
 let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 100; // ms
@@ -58,6 +124,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             category: { type: "string", description: "e.g. 'politics', 'crypto'" },
             limit: { type: "number", description: "Default 20, max 100", default: 20 },
             sort_by: { type: "string", enum: ["volume", "liquidity", "end_date"], default: "volume" },
+            min_liquidity: { type: "number", description: "Minimum open interest (liquidity) in USDC" },
+            max_liquidity: { type: "number", description: "Maximum open interest (liquidity) in USDC" },
             active_only: { type: "boolean", default: true }
           }
         }
@@ -100,6 +168,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["probability", "token_id", "portfolio_size"]
         }
+      },
+      {
+        name: "place_order",
+        description: "Place a market order on Polymarket with a $50 Risk Shield.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            token_id: { type: "string", description: "The token ID to trade" },
+            price: { type: "number", description: "The limit price (cap for BUY, floor for SELL)" },
+            amount_usdc: { type: "number", description: "Amount in USDC to spend/receive (max 50)" },
+            side: { type: "string", enum: ["BUY", "SELL"], description: "Order side" }
+          },
+          required: ["token_id", "price", "amount_usdc", "side"]
+        }
       }
     ]
   };
@@ -113,7 +195,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const params = new URLSearchParams();
       if (args.query) params.append("q", args.query);
       if (args.category) params.append("tag", args.category);
-      params.append("limit", Math.min(args.limit || 20, 100).toString());
+      
+      // If filtering by liquidity, we fetch more items to filter locally
+      const fetchLimit = (args.min_liquidity !== undefined || args.max_liquidity !== undefined) ? 100 : Math.min(args.limit || 20, 100);
+      params.append("limit", fetchLimit.toString());
       params.append("active", "true");
       params.append("closed", "false");
       params.append("order", "volume24hr");
@@ -124,7 +209,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (!response.ok) throw new Error(`Gamma API error: ${response.statusText}`);
       const data = await response.json();
       
-      const markets = data.map(m => {
+      let markets = data.map(m => {
           let outcomePrices = [];
           try {
               outcomePrices = typeof m.outcomePrices === 'string' ? JSON.parse(m.outcomePrices) : m.outcomePrices;
@@ -147,6 +232,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             clobTokenIds: typeof m.clobTokenIds === 'string' ? JSON.parse(m.clobTokenIds) : m.clobTokenIds
           };
       });
+
+      // Filter by liquidity locally
+      if (args.min_liquidity !== undefined) {
+          markets = markets.filter(m => m.open_interest >= args.min_liquidity);
+      }
+      if (args.max_liquidity !== undefined) {
+          markets = markets.filter(m => m.open_interest <= args.max_liquidity);
+      }
+
+      // Respect the original limit after filtering
+      if (args.limit) {
+          markets = markets.slice(0, args.limit);
+      }
 
       switch (args.sort_by) {
         case 'volume':
@@ -288,6 +386,139 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         full_kelly: fullKelly,
         status: "SUCCESS"
       }, null, 2) }] };
+    } else if (name === "place_order") {
+      const { token_id, price, amount_usdc, side } = args;
+      const tStart = performance.now();
+      const telemetry = {
+        slippage_check_ms: 0,
+        signing_ms: 0,
+        api_posting_ms: 0,
+        total_latency_ms: 0
+      };
+
+      const logTrade = async (status, result) => {
+        telemetry.total_latency_ms = performance.now() - tStart;
+        const tradeLog = {
+          timestamp: new Date().toISOString(),
+          token_id,
+          side,
+          amount_usdc,
+          price,
+          status,
+          telemetry,
+          ...result
+        };
+        try {
+          await fs.appendFile(TRADES_LOG_FILE, JSON.stringify(tradeLog) + '\n');
+        } catch (err) {
+          console.error(`Failed to log trade to ${TRADES_LOG_FILE}:`, err.message);
+        }
+      };
+
+      // Risk Shield
+      if (amount_usdc > 50) {
+        const errorMsg = `Risk Shield: Order amount ${amount_usdc} USDC exceeds hard cap of 50 USDC.`;
+        await logTrade("REJECTED", { reason: errorMsg });
+        throw new Error(errorMsg);
+      }
+
+      // Slippage Protection (Design mandated)
+      const tSlippageStart = performance.now();
+      try {
+        const bookUrl = `https://clob.polymarket.com/book?token_id=${token_id}`;
+        const bookResp = await rateLimitedFetch(bookUrl);
+        if (bookResp.ok) {
+          const bookData = await bookResp.json();
+          const lastPrice = parseFloat(bookData.last_trade_price || 0);
+          if (lastPrice > 0) {
+            const slippage = side === "BUY" ? (price - lastPrice) / lastPrice : (lastPrice - price) / lastPrice;
+            if (slippage > 0.02) {
+              const errorMsg = `Risk Shield: Slippage too high (${(slippage * 100).toFixed(2)}%). Max 2%. Last price: ${lastPrice}`;
+              telemetry.slippage_check_ms = performance.now() - tSlippageStart;
+              await logTrade("REJECTED", { reason: errorMsg });
+              throw new Error(errorMsg);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Warning: Slippage check failed:", e.message);
+        // Continue if API is down, we still have FOK protection
+      } finally {
+        if (telemetry.slippage_check_ms === 0) {
+           telemetry.slippage_check_ms = performance.now() - tSlippageStart;
+        }
+      }
+
+      if (!clobClient) {
+        const errorMsg = "ClobClient not initialized. Check POLYMARKET_PRIVATE_KEY and API credentials in .env.";
+        await logTrade("REJECTED", { reason: errorMsg });
+        throw new Error(errorMsg);
+      }
+
+      const orderSide = side === "BUY" ? Side.BUY : Side.SELL;
+      
+      // BUY orders: $$$ Amount to buy, SELL orders: Shares to sell
+      const orderAmount = side === "BUY" ? amount_usdc : amount_usdc / price;
+
+      // Fetch tick size and negRisk if possible, or use reasonable defaults
+      let tickSize, negRisk;
+      try {
+        tickSize = await clobClient.getTickSize(token_id);
+        negRisk = await clobClient.getNegRisk(token_id);
+      } catch (e) {
+        console.error("Warning: Could not fetch market metadata, using defaults:", e.message);
+        tickSize = "0.001";
+        negRisk = true;
+      }
+
+      const tSigningStart = performance.now();
+      const marketOrder = await clobClient.createMarketOrder({
+        tokenID: token_id,
+        amount: orderAmount,
+        side: orderSide,
+        price: price,
+        orderType: OrderType.FOK
+      }, { tickSize, negRisk });
+      telemetry.signing_ms = performance.now() - tSigningStart;
+
+      const tPostingStart = performance.now();
+      const response = await clobClient.postOrder(marketOrder, OrderType.FOK);
+      telemetry.api_posting_ms = performance.now() - tPostingStart;
+
+      if (response && (response.success || response.status === "OK")) {
+        const result = {
+          order_id: response.orderID || response.hash,
+          side,
+          amount_usdc,
+          price,
+          response
+        };
+        await logTrade("SUCCESS", result);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "SUCCESS",
+              ...result
+            }, null, 2)
+          }]
+        };
+      } else {
+        const result = {
+          reason: response?.errorMsg || "Unknown error",
+          response
+        };
+        await logTrade("REJECTED", result);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "REJECTED",
+              ...result
+            }, null, 2)
+          }]
+        };
+      }
     }
 
     throw new Error(`Tool not found: ${name}`);

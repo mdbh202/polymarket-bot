@@ -5,3 +5,6 @@ output/
 .DS_Store
 *.local
 mcp/node_modules/
+.gemini/state/
+.gemini/plans/
+.gemini/tmp/

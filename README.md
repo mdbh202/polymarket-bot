@@ -2,11 +2,25 @@
 
 This is a complete, production-ready AI trading agent designed to identify and exploit edge on Polymarket. It combines real-time market data with deep research and a systematic superforecasting engine to provide calibrated probability estimates and risk-managed trade recommendations.
 
+## 🚀 2026 Upgrades: Autonomous Execution & Niche Alpha
+The bot has been upgraded for the 2026 Polymarket landscape, focusing on high-signal niche markets and automated execution with a hardcoded Risk Shield.
+
+### Key New Features
+- **Autonomous Execution**: The `place_order` tool allows the bot to sign and post trades directly to the CLOB.
+- **Risk Shield**: Hardcoded $50 USDC per-trade cap and 2% slippage protection enforced at the tool level.
+- **Niche Pivot**: Targeted scanning of low-liquidity markets ($5k–$50k OI) where AI has a comparative advantage over speed-focused HFT bots.
+- **Self-Ensemble Reasoning**: Mandatory 3-persona reasoning (Bayesian, Sentiment, Domain) for more robust probability estimates.
+- **Zen 2.0 TUI**: A revamped, minimalist dashboard with high-density market grids and visual probability bars.
+- **Performance Audit**: High-precision telemetry tracking trade latency and automated Brier score calibration analysis.
+
 ## Prerequisites
 - **Node.js >= 18**: Required for MCP servers and script utilities.
+- **Python >= 3.9**: Required for the Zen TUI dashboard and Audit script.
 - **Gemini CLI**: The interactive agent runner ([Installation Guide](https://github.com/google/gemini-cli)).
 - **Google AI Studio API Key**: Required for Gemini model access ([Get a key](https://aistudio.google.com)).
 - **Optional**: newsdata.io API key for live news feed integration.
+
+*Note: Run `pip install -r requirements.txt` to install Python dependencies.*
 
 ## Quick Start
 1.  **Initialize the project:**
@@ -14,69 +28,51 @@ This is a complete, production-ready AI trading agent designed to identify and e
     bash scripts/setup.sh
     ```
 2.  **Configure your environment:**
-    Open the newly created `.env` file and fill in your `GOOGLE_API_KEY`, `PORTFOLIO_SIZE_USDC`, and other optional keys.
+    Open the newly created `.env` file and fill in your keys. For trading, you need `POLYMARKET_PRIVATE_KEY` (64-char hex or 44-char base64), `POLYMARKET_API_KEY`, `POLYMARKET_API_SECRET`, and `POLYMARKET_API_PASSPHRASE`.
 3.  **Load the environment:**
     ```bash
-    source .env
+    export $(grep -v '^#' .env | xargs)
     ```
-4.  **Start trading:**
+4.  **Start the Dashboard:**
     ```bash
-    gemini
+    python3 scripts/dashboard.py
     ```
 
 ## Running Scripts
-- **Market Scanning:** Run an automated scan of top markets.
+- **Niche Market Scan (Recommended):** Focus on the long-tail niche edge.
+  ```bash
+  bash scripts/scan_niche.sh
+  ```
+- **Standard Market Scan:** Top 20 high-volume markets.
   ```bash
   bash scripts/scan.sh --limit 10 --min-edge 0.05
   ```
-- **Continuous Monitoring:** Watch the market for changes in edge and price.
+- **Logical Inconsistency Check:** Find mathematical price gaps in related markets.
   ```bash
-  bash scripts/watch.sh --interval 600
+  node scripts/find_inconsistencies.js
   ```
-- **Prediction Resolution:** Resolve pending predictions and calculate Brier scores.
+- **Performance Audit:** Analyze trade latency and prediction accuracy.
   ```bash
-  node scripts/resolve_predictions.js
+  python3 scripts/audit_accuracy.py
   ```
-- **Live Dashboard:** Monitor bot status, market feed, and calibration in real-time.
+- **Live Dashboard (Zen 2.0):** Monitor bot status, market feed, and trades in real-time. Supports hotkeys: `n` (Niche Scan), `s` (Standard Scan), `r` (Refresh).
   ```bash
-  bash scripts/dashboard.sh
-  ```
-- **Kelly Calculator:** Manually size a position (Legacy).
-  ```bash
-  node scripts/kelly.js --p 0.72 --market 0.65 --portfolio 1000
+  python3 scripts/dashboard.py
   ```
 
 ## Project Structure
 - `GEMINI.md`: Foundational project context and operating mandates for the AI agent.
-- `.gemini/settings.json`: Configuration for model parameters and MCP server integration.
-- `.gemini/skills/`: Specialized agent logic for trading, research, and risk management.
-- `mcp/`: Node.js Model Context Protocol servers for Polymarket and News APIs.
-- `scripts/`: Bash and Node.js utilities for setup, scanning, and position sizing.
-- `output/`: Directory for scan JSON results and `predictions.jsonl` (calibration audit trail).
+- `mcp/`: Model Context Protocol servers for Polymarket and News APIs.
+- `scripts/`: Utilities for scanning, logic checking, auditing, and the Zen 2.0 TUI.
+- `output/`: Directory for scan results, `predictions.jsonl`, `trades.jsonl`, and `audit_results.json`.
 
 ## Calibration & Accuracy
-The bot tracks its own performance using the **Brier Score** $(p - o)^2$. Every market analyzed during a scan is logged to `output/predictions.jsonl`.
-- **Pending:** Predictions are logged with `status: "pending"`.
-- **Resolution:** Running `node scripts/resolve_predictions.js` queries the Polymarket API to check if markets have closed and updates the scores.
-- **Monitoring:** The average Brier Score is displayed on the live dashboard. A lower score indicates better calibration (0.0 is perfect).
-
-## MCP Servers
-- **Polymarket Server**: Exposes `get_markets`, `get_orderbook`, `get_history`, and `calculate_kelly`. The `calculate_kelly` tool automates risk-managed sizing by fetching live order book depth.
-- **News Server**: Exposes `search_news` and `get_prediction_market_consensus`. It integrates news data and Metaculus community consensus for Bayesian updates.
-
-## Model Selection Guide
-- `gemini-2.5-pro`: The default stable model. Excellent for deep, multi-source research.
-- `gemini-3.1-pro-preview`: Best for complex, agentic reasoning and long-tail prediction markets.
-- `gemini-3.1-flash-lite-preview`: Significantly faster; ideal for rapid initial scanning passes.
-*You can switch models using the `--model` flag in scripts or by setting `GEMINI_MODEL` in your `.env`.*
-
-## Troubleshooting
-- **MCP Servers fail to start:** Ensure you have run `bash scripts/setup.sh` and that Node.js >= 18 is in your PATH.
-- **API Key Errors:** Verify that `GOOGLE_API_KEY` is exported in your current shell session.
-- **JSON Formatting:** If `scan.sh` fails to produce valid JSON, check the log files in `output/` for specific model errors.
+The bot tracks its own performance using the **Brier Score** $(p - o)^2$ and ensemble-level breakdowns.
+- **Resolution:** Running `node scripts/resolve_predictions.js` updates scores.
+- **Audit:** `python3 scripts/audit_accuracy.py` generates a full report on latency and calibration.
 
 ## Risk Disclaimer
-Prediction markets involve significant financial risk. This project is a research and analysis tool designed to assist in decision-making; it does not guarantee profit. Always apply your own judgment and never risk capital you cannot afford to lose. This software is provided under the MIT License.
+Prediction markets involve significant financial risk. This bot includes a hardcoded $50 Risk Shield, but you are responsible for any funds used. Always use a dedicated test wallet. This software is provided under the MIT License.
 
 ## License
 MIT

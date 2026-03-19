@@ -89,8 +89,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const timeoutId = setTimeout(() => controller.abort(), 8000);
       
       try {
-        const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) throw new Error(`NewsData API error: ${response.statusText}`);
+        const response = await fetch(url, { 
+            signal: controller.signal,
+            headers: { 'User-Agent': 'Mozilla/5.0 (PolymarketBot/1.0)' }
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`NewsData API error (${response.status}): ${text.slice(0, 100)}`);
+        }
         const data = await response.json();
         
         const articles = (data.results || []).map(a => {
@@ -119,8 +125,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     } else if (name === "get_prediction_market_consensus") {
       const url = `https://www.metaculus.com/api2/questions/?search=${encodeURIComponent(args.question)}&limit=5`;
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Metaculus API error: ${response.statusText}`);
+      const response = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (PolymarketBot/1.0)' }
+      });
+      if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Metaculus API error (${response.status}): ${text.slice(0, 100)}`);
+      }
       const data = await response.json();
       
       if (!data.results || data.results.length === 0) {
