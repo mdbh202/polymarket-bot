@@ -11,9 +11,9 @@ from textual.reactive import reactive
 from textual import work
 
 # Configuration
-PROJECT_ROOT = Path(__file__).parent.parent
+# Using current directory as root to match setup
+PROJECT_ROOT = Path.cwd()
 OUTPUT_DIR = PROJECT_ROOT / "output"
-LATEST_SCAN_PATH = OUTPUT_DIR / "latest_scan.json"
 PREDICTIONS_PATH = OUTPUT_DIR / "predictions.jsonl"
 TRADES_PATH = OUTPUT_DIR / "trades.jsonl"
 
@@ -112,8 +112,10 @@ class PolymarketApp(App):
     def action_clear_activity(self) -> None:
         """Truncate trades.jsonl and predictions.jsonl."""
         try:
-            if TRADES_PATH.exists(): TRADES_PATH.write_text("")
-            if PREDICTIONS_PATH.exists(): PREDICTIONS_PATH.write_text("")
+            if TRADES_PATH.exists():
+                with open(TRADES_PATH, "w") as f: f.truncate(0)
+            if PREDICTIONS_PATH.exists():
+                with open(PREDICTIONS_PATH, "w") as f: f.truncate(0)
             self.notify("Activity logs cleared.")
             self.refresh_data()
         except Exception as e:

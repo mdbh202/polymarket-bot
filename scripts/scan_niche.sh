@@ -103,18 +103,22 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTFILE="${OUTPUT_DIR}/scan_niche_${TIMESTAMP}.json"
 
 echo "Running niche scan (Edge 1 & 2) with model: $MODEL..."
-gemini --model "$MODEL" --output-format json -y -p "$PROMPT" > "$OUTFILE"
+# Capture output to temp variable first to avoid writing errors to OUTFILE
+RAW_OUT=$(gemini --model "$MODEL" --output-format json -y -p "$PROMPT" 2>/dev/null || echo "{\"error\": \"Gemini CLI failed\"}")
 
-# Check output is valid JSON
-if ! jq empty "$OUTFILE" 2>/dev/null; then
-    echo "Warning: output may not be valid JSON."
-else
+if echo "$RAW_OUT" | jq empty 2>/dev/null; then
+    echo "$RAW_OUT" > "$OUTFILE"
     # Append predictions to jsonl
-    jq -c '.predictions[]' "$OUTFILE" >> "$PREDICTIONS_FILE"
+    jq -c '.predictions[]?' "$OUTFILE" >> "$PREDICTIONS_FILE"
     echo "----------------------------------------"
-    echo "Niche Scan complete: $(jq '.markets_scanned' "$OUTFILE") markets scanned"
-    echo "Opportunities found: $(jq '.opportunities_found' "$OUTFILE")"
+    SCANNED=$(jq '.markets_scanned // 0' "$OUTFILE")
+    FOUND=$(jq '.opportunities_found // 0' "$OUTFILE")
+    echo "Niche Scan complete: $SCANNED markets scanned"
+    echo "Opportunities found: $FOUND"
     echo "----------------------------------------"
-    jq -r '.markets[] | "• Q: \(.question)\n  Edge: \((.after_fee_edge * 100) | round)% | Pos: $\(.position_usdc)\n  Ensemble: [B:\(.ensemble_breakdown.bayesian) S:\(.ensemble_breakdown.sentiment) D:\(.ensemble_breakdown.domain)]\n"' "$OUTFILE"
+    jq -r '.markets[]? | "• Q: \(.question)\n  Edge: \((.after_fee_edge * 100 | round))% | Pos: $\(.position_usdc)\n  Ensemble: [B:\(.ensemble_breakdown.bayesian) S:\(.ensemble_breakdown.sentiment) D:\(.ensemble_breakdown.domain)]\n"' "$OUTFILE"
+else
+    echo "Error: Gemini returned invalid JSON or failed."
+    echo "{\"error\": \"Invalid JSON from model\"}" > "$OUTFILE"
 fi
 "
